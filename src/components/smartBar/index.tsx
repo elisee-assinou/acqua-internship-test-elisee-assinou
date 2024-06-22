@@ -1,35 +1,66 @@
-import { Dispatch, SetStateAction, useState } from 'react';
+'use client';
+
+import { useState } from 'react';
 import { MdOutlineWaterDrop } from 'react-icons/md';
+import { fetchGPTResponse } from '@/utils/openai';
+import useTodoStore from '@/store/store';
 
-interface SmartBarProps {
-  setTodoItems: Dispatch<SetStateAction<string[]>>;
-  setDoneItems: Dispatch<SetStateAction<string[]>>;
-  todoItems: string[];
-  doneItems: string[];
-}
-
-export default function SmartBar({
-  setDoneItems,
-  setTodoItems,
-  todoItems,
-  doneItems,
-}: SmartBarProps) {
+export default function SmartBar() {
+  const { todoItems, doneItems, setTodoItems, setDoneItems } = useTodoStore();
   const [error, setError] = useState(false);
   const [value, setValue] = useState('');
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (value === '') return;
 
-    const wantedItemInTodo = todoItems.find((item) => item === value);
-    const wantedItemInDone = doneItems.find((item) => item === value);
+    const prompt = `Todo List: ${todoItems
+      .map((item) => item.title)
+      .join(', ')}\nDone List: ${doneItems
+      .map((item) => item.title)
+      .join(
+        ', ',
+      )}\n\nUser Input: ${value}\n\nBased on the user input, should any tasks be moved between the todo list and the done list? Please specify which tasks should be moved and to where.`;
 
-    if (wantedItemInTodo) {
-      setDoneItems((prev) => [...prev, wantedItemInTodo]);
-      setTodoItems((prev) => prev.filter((item) => item !== wantedItemInTodo));
-    } else if (wantedItemInDone) {
-      setTodoItems((prev) => [...prev, wantedItemInDone]);
-      setDoneItems((prev) => prev.filter((item) => item !== wantedItemInDone));
-    } else {
+    try {
+      const response = await fetchGPTResponse(prompt);
+
+      response.split('\n').forEach((line) => {
+        if (line.includes('Move to done:')) {
+          const tasks = line
+            .replace('Move to done:', '')
+            .split(',')
+            .map((task) => task.trim());
+
+          const newTodoItems = todoItems.filter(
+            (todo) => !tasks.includes(todo.title),
+          );
+          const newDoneItems = [
+            ...doneItems,
+            ...todoItems.filter((todo) => tasks.includes(todo.title)),
+          ];
+
+          setTodoItems(newTodoItems);
+          setDoneItems(newDoneItems);
+        } else if (line.includes('Move to todo:')) {
+          const tasks = line
+            .replace('Move to todo:', '')
+            .split(',')
+            .map((task) => task.trim());
+
+          const newDoneItems = doneItems.filter(
+            (done) => !tasks.includes(done.title),
+          );
+          const newTodoItems = [
+            ...todoItems,
+            ...doneItems.filter((done) => tasks.includes(done.title)),
+          ];
+
+          setTodoItems(newTodoItems);
+          setDoneItems(newDoneItems);
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching GPT response:', error);
       setError(true);
     }
 
